@@ -37,14 +37,12 @@ def train(args, config, optimizer, optimizer_scale,
     lr_overfitting = config.overfitting.lr_overfitting
     n_overfitting = config.overfitting.n_overfitting
     step = 0
-    dmodel_original_weight = deepcopy(model.get_parameter(weight_name+'.weight'))
+    dmodel_original_weight = deepcopy(model.get_parameter(weight_name))
     if args.precompute_all == 1:
         print('precomputation of overfitting to save time starts')
         ws,hs,outs = [],[],[]
         for idx, batch in enumerate(train_loader):
             optimizer_scale.zero_grad()
-            batch['input'] = batch['input'].to(device)
-            batch['output'] = batch['output'].to(device)
             # Overfitting encapsulation #
             weight,hfirst,outin= overfitting_batch_wrapper(
             datatype=args.datatype,
@@ -53,10 +51,12 @@ def train(args, config, optimizer, optimizer_scale,
             batch=batch,loss_fn=opt_error_loss,
             n_iteration=n_overfitting,
             lr=lr_overfitting,
+            device=device,
             verbose=False
             )
             ws.append(deepcopy(weight.detach().cpu()))
-            hs.append(deepcopy(hfirst))
+            if hfirst:
+                hs.append(deepcopy(hfirst))
             outs.append(deepcopy(outin.detach().cpu()))
 
         print('precomputation finished')
@@ -69,11 +69,10 @@ def train(args, config, optimizer, optimizer_scale,
         optimizer_scale.zero_grad()
         for idx, batch in enumerate(train_loader):
             optimizer_scale.zero_grad()
-            batch['input'] = batch['input'].to(device)
-            batch['output'] = batch['output'].to(device)
             # Overfitting encapsulation #
             if args.precompute_all:
-                weight,hfirst,outin = ws[idx].to(device),hs[idx],outs[idx].to(device)
+                weight,outin = ws[idx].to(device),outs[idx].to(device)
+                hfirst=hs[idx]
             else:
                 weight,hfirst,outin= overfitting_batch_wrapper(
                 datatype=args.datatype,
@@ -82,6 +81,7 @@ def train(args, config, optimizer, optimizer_scale,
                 batch=batch,loss_fn=opt_error_loss,
                 n_iteration=n_overfitting,
                 lr=lr_overfitting,
+                device=device,
                 verbose=False
                 )
             diff_weight = weight - dmodel_original_weight #calculate optimal weight difference from baseline
@@ -92,6 +92,7 @@ def train(args, config, optimizer, optimizer_scale,
                 encoding_out = vgg_encode(outin)
             else:
                 encoding_out = outin
+            # x, lat, out, t
             estimated_error = diffusion_model(
                 F.pad(weight_noisy,(padding[1][0],padding[1][1],padding[0][0],padding[0][1])),
                 hfirst,

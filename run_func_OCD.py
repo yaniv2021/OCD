@@ -79,15 +79,18 @@ tb_logger = tb.SummaryWriter(log_dir=tb_path)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 lr = args.learning_rate # learning rate for the diffusion model & scale estimation model
 
-diffusion_model = Model(config=config).cuda()
+train_loader, test_loader, model = wrapper_dataset(config, args, device)
+if args.datatype != 'imdb':
+    model.load_state_dict(torch.load(module_path))
+model = model.to(device)
+
+diffusion_model = Model(config=config).to(device)
 loss_fn = torch.nn.MSELoss()
-scale_model = Model_Scale(config=config).cuda()
+scale_model = Model_Scale(config=config).to(device)
 if args.resume_training:
     diffusion_model.load_state_dict(torch.load(args.diffusion_model_path))
     scale_model.load_state_dict(torch.load(args.scale_model_path))
-train_loader, test_loader, model = wrapper_dataset(config, args, device)
-model.load_state_dict(torch.load(module_path))
-model = model.to(device)
+
 if config.training.loss == 'mse':
     opt_error_loss = torch.nn.MSELoss()
 elif config.training.loss == 'ce':
@@ -102,7 +105,7 @@ ema_helper.register(diffusion_model)
 
 ################################################# Check if weight is OK ##########################
 weight_name = config.model.weight_name
-dmodel_original_weight = deepcopy(model.get_parameter(weight_name+'.weight'))
+dmodel_original_weight = deepcopy(model.get_parameter(weight_name))
 mat_shape = dmodel_original_weight.shape
 assert len(mat_shape) == 2, "Weight to overfit should be a matrix !"
 padding = []
@@ -141,8 +144,6 @@ else:
 print('*'*100)
 ldiff,lopt,lbaseline = 0,0,0
 for idx, batch in enumerate(test_loader):
-    batch['input'] = batch['input'].to(device)
-    batch['output'] = batch['output'].to(device)
     # Overfitting encapsulation #
     weight,hfirst,outin= overfitting_batch_wrapper(
         datatype=args.datatype,
@@ -151,6 +152,7 @@ for idx, batch in enumerate(test_loader):
         batch=batch,loss_fn=opt_error_loss,
         n_iteration=config.overfitting.n_overfitting,
         lr=config.overfitting.lr_overfitting,
+        device=device,
         verbose=False
         )
     diff_weight = weight - dmodel_original_weight
@@ -165,8 +167,7 @@ for idx, batch in enumerate(test_loader):
         x=(diff_weight.unsqueeze(0),hfirst,encoding_out), model=diffusion_model,
         bmodel=model, batch=batch, loss_fn=opt_error_loss,
         std=std, padding=padding,
-        mat_shape=mat_shape, isnerf=(args.datatype=='tinynerf')
-        )
+        mat_shape=mat_shape, datatype=args.datatype)
     ldiff += ldiffusion
     lopt += loptimal
     lbaseline += lbase

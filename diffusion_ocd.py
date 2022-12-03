@@ -223,9 +223,9 @@ class Model_Scale(nn.Module):
         ch = config.diffusion.scale.ch
         in_dim = config.diffusion.scale.in_dim
         out_dim = config.diffusion.scale.out_dim
-        self.mlp = nn.Sequential(nn.Linear(in_dim,ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
-        self.mlp_latin = nn.Sequential(nn.Linear(out_dim,ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
-        self.mlp_scale = nn.Sequential(nn.Linear(8*ch,4*ch),nn.SiLU(),nn.Linear(4*ch,ch),nn.SiLU(),nn.Linear(ch,1),nn.Sigmoid())
+        self.mlp = nn.Sequential(nn.Linear(in_dim,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.LayerNorm(2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
+        self.mlp_latin = nn.Sequential(nn.Linear(out_dim,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.LayerNorm(2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
+        self.mlp_scale = nn.Sequential(nn.Linear(8*ch,4*ch),nn.LayerNorm(4*ch),nn.SiLU(),nn.Linear(4*ch,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,1),nn.Sigmoid())
     def forward(self, lat, outin):
         #assert x.shape[2] == x.shape[3] == self.resolutio
         # timestep embedding
@@ -377,7 +377,11 @@ class Model(nn.Module):
             latent = self.mlp(lat).mean(0).unsqueeze(0)
             latent_in = self.mlp_latin(latin).mean(0).unsqueeze(0)
             out_in = self.mlp_out(out)
+            if 'bert' in self.config.model.name:
+                out_in = out_in.unsqueeze(1)
             latent = self.codeout(latent+latent_in+out_in)
+            if 'bert' in self.config.model.name:
+                latent = latent.squeeze()
         else:
             out_in = self.mlp_out(out)
             latent = self.mlp(lat) + out_in

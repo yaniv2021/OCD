@@ -38,6 +38,14 @@ python run_func_OCD.py -e 0 -pb ./checkpoints/checkpoint_lenet5.pth -pc ./config
 ```
 python run_func_OCD.py -e 1 -t 0 -pb ./checkpoints/checkpoint_lenet5.pth -pc ./configs/train_mnist.json -pdtr ./data/mnist -pdts ./data/mnist -dt mnist -prc 0 -pd ./checkpoints/model_ocd_mnist.pt -ps ./checkpoints/scale_model_mnist.pt
 ```
+**5. for training bert-OCD**<br />
+```
+python3 run_func_OCD.py -dt imdb -pc ./configs/train_bert.json
+```
+**6. for evaluating bert-OCD** - First you need to train the model(!) <br />
+```
+
+```
 ## Acknowledgments
 The tinyNeRF code base is from (https://github.com/krrish94/nerf-pytorch) Krishna Murthy's repo. <br />
 There are adjustments in order to export the latent variables required for the diffusion process condition. <br />

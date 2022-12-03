@@ -6,7 +6,7 @@
         "loss": "ce"
     },
     "model": {
-        "weight_name": "fc1",
+        "weight_name": "fc1.weight",
         "name":"mnist"
     },
     "checkpoint": {

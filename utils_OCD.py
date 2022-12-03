@@ -54,7 +54,7 @@ class ConfigWrapper(object):
 def overfitting_batch_nerf(bmodel=None,weight_name='',bias_name='',
 batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
     base_model = copy.deepcopy(bmodel)
-    param_weight = base_model.get_parameter(weight_name+'.weight')
+    param_weight = base_model.get_parameter(weight_name)
     opt = torch.optim.Adam([
                 {'params': param_weight},
             ], lr=lr)
@@ -85,14 +85,16 @@ batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
         loss.backward()
         opt.step()
 
-    weight = base_model.get_parameter(weight_name+'.weight').detach()
+    weight = base_model.get_parameter(weight_name).detach()
     return weight,hfirst,out_first
 
 
 
 def overfitting_batch_wrapper(datatype='',bmodel=None,weight_name='',bias_name='',
-batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
+batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,device=None,verbose=False):
     if datatype == 'tinynerf':
+        batch['input'] = batch['input'].to(device)
+        batch['output'] = batch['output'].to(device)
         weight,hfirst,outin= overfitting_batch_nerf(
             bmodel=bmodel,weight_name=weight_name,
             bias_name=bias_name,
@@ -101,7 +103,22 @@ batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
             lr=lr,
             verbose=verbose
             )
+    elif datatype == 'imdb':
+        #batch["input_ids"] = batch["input_ids"].reshape(4,512).to(device)
+        batch["input_ids"] = batch["input_ids"].to(device)
+        batch["attention_mask"] = batch["attention_mask"].to(device)
+        batch["targets"] = batch["targets"].to(device)
+        weight,hfirst,outin= overfitting_batch_transformer(
+            bmodel=bmodel,weight_name=weight_name,
+            bias_name=bias_name,
+            batch=batch,loss_fn=loss_fn,
+            n_iteration=n_iteration,
+            lr=lr,
+            verbose=verbose
+            )
     else:
+        batch['input'] = batch['input'].to(device)
+        batch['output'] = batch['output'].to(device)
         weight,hfirst,outin= overfitting_batch(
             bmodel=bmodel,weight_name=weight_name,
             bias_name=bias_name,
@@ -116,7 +133,7 @@ batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
 def overfitting_batch(bmodel=None,weight_name='',bias_name='',
 batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
     base_model = copy.deepcopy(bmodel)
-    param_weight = base_model.get_parameter(weight_name+'.weight')
+    param_weight = base_model.get_parameter(weight_name)
     opt = torch.optim.Adam([
                 {'params': param_weight},
             ], lr=lr)
@@ -131,13 +148,39 @@ batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
         loss = loss_fn(predicted_labels, batch['output'].long())
         loss.backward()
         opt.step()
-    weight = base_model.get_parameter(weight_name+'.weight').detach()
+    weight = base_model.get_parameter(weight_name).detach()
+    return weight,hfirst,out
+
+def overfitting_batch_transformer(bmodel=None,weight_name='',bias_name='',
+batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
+    base_model = copy.deepcopy(bmodel)
+    #weight_index = [n for n,_ in base_model.named_parameters()].index(weight_name)
+    weight_index = 1
+    param_weight = base_model.get_parameter(weight_name)
+    opt = torch.optim.Adam([
+                {'params': param_weight},
+            ], lr=lr)
+    
+    for epoch in range(n_iteration):
+        opt.zero_grad()
+        outputs = base_model(input_ids=batch['input_ids'].squeeze(),
+                             attention_mask=batch['attention_mask'], labels=batch['targets'],
+                             output_hidden_states=True)
+        if epoch == 0:
+            hidden_states = outputs.hidden_states
+            hx,hy = hidden_states[weight_index], hidden_states[weight_index+1]
+            hfirst = copy.deepcopy((hx.detach().flatten(1),hy.detach().flatten(1)))
+            out = copy.deepcopy(outputs.logits.detach())
+        loss = outputs.loss
+        loss.backward()
+        opt.step()
+    weight = base_model.get_parameter(weight_name).detach()
     return weight,hfirst,out
 
 def check_ps_nerf(named_parameter='',bmodel=None,w=0,
 batch=None, loss_fn=None,std=0,dopt=0):
     model = copy.deepcopy(bmodel)
-    r = copy.deepcopy( model.get_parameter(named_parameter+'.weight').data)
+    r = copy.deepcopy( model.get_parameter(named_parameter).data)
     rgb_predicted,h = run_one_iter_of_tinynerf(
                 batch['height'],
                 batch['width'],
@@ -154,7 +197,7 @@ batch=None, loss_fn=None,std=0,dopt=0):
             )
     loss = loss_fn(rgb_predicted, batch['output'])
     lbase = loss.item()
-    model.get_parameter(named_parameter+'.weight').data += dopt.squeeze()
+    model.get_parameter(named_parameter).data += dopt.squeeze()
     rgb_predicted,h = run_one_iter_of_tinynerf(
                 batch['height'],
                 batch['width'],
@@ -171,7 +214,7 @@ batch=None, loss_fn=None,std=0,dopt=0):
             )
     loss = loss_fn(rgb_predicted, batch['output'])
     loptimal = loss.item()
-    model.get_parameter(named_parameter+'.weight').data = r + std*w.squeeze().to('cuda')
+    model.get_parameter(named_parameter).data = r + std*w.squeeze().to('cuda')
     rgb_predicted,h = run_one_iter_of_tinynerf(
                 batch['height'],
                 batch['width'],
@@ -187,6 +230,27 @@ batch=None, loss_fn=None,std=0,dopt=0):
                 batch['num_encoding_functions'],
             )
     loss = loss_fn(rgb_predicted, batch['output'])
+    ldiffusion = loss.item()
+    del model
+    return ldiffusion,loptimal,lbase
+
+def check_ps_transformer(named_parameter='',bmodel=None,w=0,
+batch=None, loss_fn=None,std=0,dopt=0):
+    model = copy.deepcopy(bmodel)
+    r = copy.deepcopy( model.get_parameter(named_parameter).data)
+    outputs = model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
+                    attention_mask=batch['attention_mask'], labels=batch['targets'])
+    loss = outputs.loss
+    lbase = loss.item()
+    model.get_parameter(named_parameter).data += dopt.squeeze()
+    outputs = model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
+                    attention_mask=batch['attention_mask'], labels=batch['targets'])
+    loss = outputs.loss
+    loptimal = loss.item()
+    model.get_parameter(named_parameter).data = r + std*w.squeeze().to('cuda')
+    outputs = model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
+                    attention_mask=batch['attention_mask'], labels=batch['targets'])
+    loss = outputs.loss
     ldiffusion = loss.item()
     del model
     return ldiffusion,loptimal,lbase
@@ -194,26 +258,29 @@ batch=None, loss_fn=None,std=0,dopt=0):
 def check_ps(named_parameter='',bmodel=None,w=0,
 batch=None, loss_fn=None,std=0,dopt=0):
     model = copy.deepcopy(bmodel)
-    r = copy.deepcopy( model.get_parameter(named_parameter+'.weight').data)
+    r = copy.deepcopy( model.get_parameter(named_parameter).data)
     predicted_labels,h = model(batch['input'])
     loss = loss_fn(predicted_labels, batch['output'].long())
     lbase = loss.item()
-    model.get_parameter(named_parameter+'.weight').data += dopt.squeeze()
+    model.get_parameter(named_parameter).data += dopt.squeeze()
     predicted_labels,h = model(batch['input'])
     loss = loss_fn(predicted_labels, batch['output'].long())
     loptimal = loss.item()
-    model.get_parameter(named_parameter+'.weight').data = r + std*w.squeeze().to('cuda')
+    model.get_parameter(named_parameter).data = r + std*w.squeeze().to('cuda')
     predicted_labels,h = model(batch['input'])
     loss = loss_fn(predicted_labels, batch['output'].long())
     ldiffusion = loss.item()
     del model
     return ldiffusion,loptimal,lbase
 
-def check_ps_wrapper(isnerf=0,named_parameter='',bmodel=None,w=0,
+def check_ps_wrapper(datatype='',named_parameter='',bmodel=None,w=0,
 batch=None, loss_fn=None,std=0,dopt=0):
-    if isnerf:
+    if datatype == 'tinynerf':
         return check_ps_nerf(named_parameter=named_parameter,bmodel=bmodel,w=w,
 batch=batch, loss_fn=loss_fn,std=std,dopt=dopt)
+    elif datatype == 'imdb':
+        return check_ps_transformer(named_parameter=named_parameter,bmodel=bmodel,w=w,
+batch=batch, loss_fn=loss_fn,std=std,dopt=dopt)        
     else:
         return check_ps(named_parameter=named_parameter,bmodel=bmodel,w=w,
 batch=batch, loss_fn=loss_fn,std=std,dopt=dopt)
@@ -240,7 +307,7 @@ def compute_alpha(beta, t):
 
 
 
-def generalized_steps(named_parameter, numstep, x, model, bmodel, batch, loss_fn, std, padding, mat_shape, isnerf=0, **kwargs):
+def generalized_steps(named_parameter, numstep, x, model, bmodel, batch, loss_fn, std, padding, mat_shape, datatype, **kwargs):
     with torch.no_grad():
         b = betas
         num_steps =numstep
@@ -270,7 +337,7 @@ def generalized_steps(named_parameter, numstep, x, model, bmodel, batch, loss_fn
             xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
             xs.append(xt_next.to('cpu'))
         wdiff = xs[-1]
-        ldiffusion,loptimal,lbase = check_ps_wrapper(isnerf=isnerf,named_parameter=named_parameter,
+        ldiffusion,loptimal,lbase = check_ps_wrapper(datatype=datatype,named_parameter=named_parameter,
             bmodel=bmodel, w=wdiff.squeeze(), batch=batch,
             loss_fn=loss_fn,std=std,dopt=dopt
             )

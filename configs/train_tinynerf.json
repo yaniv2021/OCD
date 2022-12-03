@@ -6,7 +6,7 @@
         "loss": "mse"
     },
     "model": {
-        "weight_name": "layer1",
+        "weight_name": "layer1.weight",
         "name":"tinynerf"
     },
     "checkpoint": {

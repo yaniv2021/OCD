@@ -9,6 +9,118 @@ import Lenet5
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 from copy import deepcopy
+
+### IMDB related
+
+import pandas as pd
+from sklearn.utils import shuffle
+import re
+
+def clean_text(text):
+    text = re.sub(r"@[A-Za-z0-9]+", ' ', text)
+    text = re.sub(r"https?://[A-Za-z0-9./]+", ' ', text)
+    text = re.sub(r"[^a-zA-z.!?'0-9]", ' ', text)
+    text = re.sub('\t', ' ',  text)
+    text = re.sub(r" +", ' ', text)
+    return text
+
+def sentiment2label(sentiment):
+    if sentiment == "positive":
+        return 1
+    else:
+        return 0
+
+from torch.utils.data import Dataset, DataLoader
+
+class ImdbDataset(Dataset):
+    def __init__(self, reviews, targets, tokenizer, max_len):
+        self.reviews = reviews
+        self.targets = targets
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+    
+    def __len__(self):
+        return len(self.reviews)
+    
+    def __getitem__(self, item):
+        review = str(self.reviews[item])
+        target = self.targets[item]
+
+        encoding = self.tokenizer.encode_plus(
+        review,
+        add_special_tokens=True,
+        max_length=self.max_len,
+        return_token_type_ids=False,
+        pad_to_max_length=True,
+        #pad_to_max_length=False,
+        return_attention_mask=True,
+        return_tensors='pt',
+        )
+
+        input_ids = encoding['input_ids']
+        attention_mask = encoding['attention_mask']
+        """
+        input_ids = pad_sequences(encoding['input_ids'], maxlen=self.max_len, dtype=torch.Tensor ,truncating="post",padding="post")
+        input_ids = input_ids.astype(dtype = 'int64')
+        input_ids = torch.tensor(input_ids)
+
+        attention_mask = pad_sequences(encoding['attention_mask'], maxlen=self.max_len, dtype=torch.Tensor ,truncating="post",padding="post")
+        attention_mask = attention_mask.astype(dtype = 'int64')
+        attention_mask = torch.tensor(attention_mask)
+        """
+
+        return {
+        'review_text': review,
+        'input_ids': input_ids,
+        'attention_mask': attention_mask,
+        'targets': torch.tensor(target, dtype=torch.long)
+        }
+
+def create_data_loader(df, tokenizer, max_len, batch_size):
+  ds = ImdbDataset(
+    reviews=df.review.to_numpy(),
+    targets=df.sentiment.to_numpy(),
+    tokenizer=tokenizer,
+    max_len=max_len
+  )
+
+  return DataLoader(
+    ds,
+    batch_size=batch_size,
+    num_workers=4
+  )
+
+from transformers import XLNetTokenizer, XLNetModel
+from transformers import XLNetForSequenceClassification
+from keras.utils import pad_sequences
+from sklearn.model_selection import train_test_split
+import transformers
+
+def handle_imdb(device):
+        df = pd.read_csv('/home/user/Documents/tau/wolf/datasets/IMDB Dataset.csv')
+        df = shuffle(df)
+        df['review'] = df['review'].apply(clean_text)
+        df['sentiment'] = df['sentiment'].apply(sentiment2label)
+        
+        #tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
+        #model = XLNetForSequenceClassification.from_pretrained('xlnet-base-cased', num_labels=2)
+        model_name = "prajjwal1/bert-tiny"
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+        model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name)
+        model = model.to(device)
+
+        df_train, df_test = train_test_split(df, test_size=0.5, random_state=101)
+        #df_val, df_test = train_test_split(df_test, test_size=0.5, random_state=101)
+
+        BATCH_SIZE = 1
+        #MAX_LEN = 512
+        MAX_LEN = 200
+        train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN, BATCH_SIZE)
+        #val_data_loader = create_data_loader(df_val, tokenizer, MAX_LEN, BATCH_SIZE)
+        test_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN, BATCH_SIZE)
+
+        return train_data_loader, test_data_loader, model
+
 def wrapper_dataset(config, args, device):
     if args.datatype == 'tinynerf':
         
@@ -89,6 +201,8 @@ def wrapper_dataset(config, args, device):
             train_x = train_x[:,0,:,:].unsqueeze(1)
             batch = {'input':train_x,'output':train_label}
             test_ds.append(deepcopy(batch))
+    elif args.datatype == 'imdb':
+        train_ds, test_ds, model = handle_imdb(device)
     else:
         "implement on your own"
         pass
