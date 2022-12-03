@@ -1,0 +1,39 @@
+{
+    "training": {
+        "epochs": 100000,
+        "grad_accum": 8,
+        "grad_clip": 1.0,
+        "loss": "ce"
+    },
+    "model": {
+        "weight_name": "bert.encoder.layer.0.attention.output.dense.weight",
+        "name":"bert-tiny"
+    },
+    "checkpoint": {
+        "checkpoint_path": "",
+        "n_checkpoint": 1
+    },
+    "diffusion": {
+        "dropout": 0.4,
+        "diffusion_num_steps": 1000,
+        "diffusion_num_steps_eval": 10,
+        "nch": 128,
+        "out_ch": 1,
+        "ch_mult": [1, 1, 2, 2, 4, 4],
+        "dim_in": 25600,
+        "dim_lat_out": 25600,
+        "dim_output": 2,
+        "scale":{
+            "ch": 128,
+            "in_dim": 25600,
+            "out_dim": 25600
+        }
+
+    },
+    "overfitting": {
+        "lr_overfitting": 5e-4,
+        "n_overfitting": 3
+    }
+
+}
+
