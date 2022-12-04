@@ -155,7 +155,7 @@ def overfitting_batch_transformer(bmodel=None,weight_name='',bias_name='',
 batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
     base_model = copy.deepcopy(bmodel)
     #weight_index = [n for n,_ in base_model.named_parameters()].index(weight_name)
-    weight_index = 1
+    weight_index = 0
     param_weight = base_model.get_parameter(weight_name)
     opt = torch.optim.Adam([
                 {'params': param_weight},
@@ -163,7 +163,7 @@ batch=None, loss_fn=None,n_iteration=10,lr=0.5e-4,verbose=False):
     
     for epoch in range(n_iteration):
         opt.zero_grad()
-        outputs = base_model(input_ids=batch['input_ids'].squeeze(),
+        outputs = base_model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
                              attention_mask=batch['attention_mask'], labels=batch['targets'],
                              output_hidden_states=True)
         if epoch == 0:
@@ -242,18 +242,22 @@ batch=None, loss_fn=None,std=0,dopt=0):
                     attention_mask=batch['attention_mask'], labels=batch['targets'])
     loss = outputs.loss
     lbase = loss.item()
+    is_right_b = (torch.argmax(outputs.logits) == batch['targets']).cpu().numpy()[0]
     model.get_parameter(named_parameter).data += dopt.squeeze()
     outputs = model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
                     attention_mask=batch['attention_mask'], labels=batch['targets'])
     loss = outputs.loss
     loptimal = loss.item()
+    is_right_opt = (torch.argmax(outputs.logits) == batch['targets']).cpu().numpy()[0]
     model.get_parameter(named_parameter).data = r + std*w.squeeze().to('cuda')
     outputs = model(input_ids=batch['input_ids'].squeeze().unsqueeze(0),
                     attention_mask=batch['attention_mask'], labels=batch['targets'])
     loss = outputs.loss
     ldiffusion = loss.item()
+    is_right_d = (torch.argmax(outputs.logits) == batch['targets']).cpu().numpy()[0]
     del model
-    return ldiffusion,loptimal,lbase
+
+    return ldiffusion,loptimal,lbase,is_right_d,is_right_opt,is_right_b
 
 def check_ps(named_parameter='',bmodel=None,w=0,
 batch=None, loss_fn=None,std=0,dopt=0):
@@ -337,9 +341,16 @@ def generalized_steps(named_parameter, numstep, x, model, bmodel, batch, loss_fn
             xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
             xs.append(xt_next.to('cpu'))
         wdiff = xs[-1]
-        ldiffusion,loptimal,lbase = check_ps_wrapper(datatype=datatype,named_parameter=named_parameter,
-            bmodel=bmodel, w=wdiff.squeeze(), batch=batch,
-            loss_fn=loss_fn,std=std,dopt=dopt
-            )
+        if datatype == 'imdb':
+          ldiffusion,loptimal,lbase,is_right_d,is_right_opt,is_right_b = check_ps_wrapper(datatype=datatype,named_parameter=named_parameter,
+              bmodel=bmodel, w=wdiff.squeeze(), batch=batch,
+              loss_fn=loss_fn,std=std,dopt=dopt
+              )
+          return ldiffusion,loptimal,lbase,wdiff,is_right_d,is_right_opt,is_right_b
+        else:
+          ldiffusion,loptimal,lbase = check_ps_wrapper(datatype=datatype,named_parameter=named_parameter,
+              bmodel=bmodel, w=wdiff.squeeze(), batch=batch,
+              loss_fn=loss_fn,std=std,dopt=dopt
+              )
     return ldiffusion,loptimal,lbase,wdiff
 

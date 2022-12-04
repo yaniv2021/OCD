@@ -143,6 +143,9 @@ else:
 
 print('*'*100)
 ldiff,lopt,lbaseline = 0,0,0
+right_b = 0
+right_opt = 0
+right_d = 0
 for idx, batch in enumerate(test_loader):
     # Overfitting encapsulation #
     weight,hfirst,outin= overfitting_batch_wrapper(
@@ -162,13 +165,30 @@ for idx, batch in enumerate(test_loader):
         encoding_out = outin
     with torch.no_grad():
         std = scale_model(hfirst,encoding_out)
-    ldiffusion, loptimal, lbase, wdiff = generalized_steps(
-        named_parameter=weight_name, numstep=config.diffusion.diffusion_num_steps_eval,
-        x=(diff_weight.unsqueeze(0),hfirst,encoding_out), model=diffusion_model,
-        bmodel=model, batch=batch, loss_fn=opt_error_loss,
-        std=std, padding=padding,
-        mat_shape=mat_shape, datatype=args.datatype)
+    if args.datatype == 'imdb':
+      ldiffusion, loptimal, lbase, wdiff, is_right_d, is_right_opt, is_right_b = generalized_steps(
+          named_parameter=weight_name, numstep=config.diffusion.diffusion_num_steps_eval,
+          x=(diff_weight.unsqueeze(0),hfirst,encoding_out), model=diffusion_model,
+          bmodel=model, batch=batch, loss_fn=opt_error_loss,
+          std=std, padding=padding,
+          mat_shape=mat_shape, datatype=args.datatype)
+      if is_right_d:
+        right_d += 1
+      if is_right_opt:
+        right_opt += 1
+      if is_right_b:
+        right_b += 1
+    else:
+      ldiffusion, loptimal, lbase, wdiff = generalized_steps(
+          named_parameter=weight_name, numstep=config.diffusion.diffusion_num_steps_eval,
+          x=(diff_weight.unsqueeze(0),hfirst,encoding_out), model=diffusion_model,
+          bmodel=model, batch=batch, loss_fn=opt_error_loss,
+          std=std, padding=padding,
+          mat_shape=mat_shape, datatype=args.datatype)
     ldiff += ldiffusion
     lopt += loptimal
     lbaseline += lbase
-    print(f"\rBaseline loss {lbaseline/(idx+1)}, Overfitted loss {lopt/(idx+1)}, Diffusion loss {ldiff/(idx+1)}",end='')
+    if args.datatype == 'imdb':
+      print(f"\rBaseline loss {lbaseline/(idx+1)}, Overfitted loss {lopt/(idx+1)}, Diffusion loss {ldiff/(idx+1)}, Baseline Accuracy {right_b/(idx+1)}, Overfitted Accuracy {right_opt/(idx+1)}, Diffusion Accuracy {right_d/(idx+1)}",end='')
+    else:
+      print(f"\rBaseline loss {lbaseline/(idx+1)}, Overfitted loss {lopt/(idx+1)}, Diffusion loss {ldiff/(idx+1)}",end='')

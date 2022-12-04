@@ -225,7 +225,14 @@ class Model_Scale(nn.Module):
         out_dim = config.diffusion.scale.out_dim
         self.mlp = nn.Sequential(nn.Linear(in_dim,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.LayerNorm(2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
         self.mlp_latin = nn.Sequential(nn.Linear(out_dim,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,2*ch),nn.LayerNorm(2*ch),nn.SiLU(),nn.Linear(2*ch,4*ch))
-        self.mlp_scale = nn.Sequential(nn.Linear(8*ch,4*ch),nn.LayerNorm(4*ch),nn.SiLU(),nn.Linear(4*ch,ch),nn.LayerNorm(ch),nn.SiLU(),nn.Linear(ch,1),nn.Sigmoid())
+        ch2 = int(0.5*ch)
+        ch3 = int(0.25*ch)
+        self.mlp_scale = nn.Sequential(
+                    nn.Linear(8*ch,4*ch),nn.LayerNorm(4*ch),nn.SiLU(),
+                    nn.Linear(4*ch,ch),nn.LayerNorm(ch),nn.SiLU(),
+                    nn.Linear(ch,ch2),nn.LayerNorm(ch2),nn.SiLU(),
+                    nn.Linear(ch2,ch3),nn.LayerNorm(ch3),nn.SiLU(),
+                    nn.Linear(ch3,1),nn.Sigmoid())
     def forward(self, lat, outin):
         #assert x.shape[2] == x.shape[3] == self.resolutio
         # timestep embedding
